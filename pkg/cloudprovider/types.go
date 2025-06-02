@@ -14,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// cloudprovider 패키지는 클라우드 프로바이더 인터페이스와 관련 타입을 정의합니다.
+// 이 패키지는 다양한 클라우드 프로바이더(AWS, Azure, GCP 등)와의 통합을 위한 추상화 계층을 제공합니다.
 package cloudprovider
 
 import (
@@ -37,56 +39,70 @@ import (
 )
 
 var (
+	// SpotRequirement는 스팟 인스턴스 타입에 대한 요구사항을 정의합니다.
 	SpotRequirement     = scheduling.NewRequirements(scheduling.NewRequirement(v1.CapacityTypeLabelKey, corev1.NodeSelectorOpIn, v1.CapacityTypeSpot))
+	// OnDemandRequirement는 온디맨드 인스턴스 타입에 대한 요구사항을 정의합니다.
 	OnDemandRequirement = scheduling.NewRequirements(scheduling.NewRequirement(v1.CapacityTypeLabelKey, corev1.NodeSelectorOpIn, v1.CapacityTypeOnDemand))
+	// ReservedRequirement는 예약된 인스턴스 타입에 대한 요구사항을 정의합니다.
 	ReservedRequirement = scheduling.NewRequirements(scheduling.NewRequirement(v1.CapacityTypeLabelKey, corev1.NodeSelectorOpIn, v1.CapacityTypeReserved))
 
-	// ReservationIDLabel is a label injected into a reserved offering's requirements which is used to uniquely identify a
-	// reservation. For example, a reservation could be shared across multiple NodePools, and the value encoded in this
-	// requirement is used to inform the scheduler that a reservation for one should affect the other.
+	// ReservationIDLabel은 예약된 오퍼링의 요구사항에 주입되는 레이블로, 예약을 고유하게 식별하는 데 사용됩니다.
+	// 예를 들어, 예약은 여러 NodePool에서 공유될 수 있으며, 이 요구사항에 인코딩된 값은 
+	// 하나의 예약이 다른 예약에 영향을 미쳐야 함을 스케줄러에 알리는 데 사용됩니다.
 	ReservationIDLabel string
 )
 
+// DriftReason은 노드가 드리프트된 이유를 나타내는 문자열 타입입니다.
 type DriftReason string
 
+// RepairPolicy는 노드 복구 정책을 정의하는 구조체입니다.
+// 이 구조체는 노드가 비정상 상태일 때 어떻게 처리할지에 대한 정책을 정의합니다.
 type RepairPolicy struct {
-	// ConditionType of unhealthy state that is found on the node
+	// ConditionType은 노드에서 발견된 비정상 상태의 조건 유형입니다.
 	ConditionType corev1.NodeConditionType
-	// ConditionStatus condition when a node is unhealthy
+	// ConditionStatus는 노드가 비정상일 때의 조건 상태입니다.
 	ConditionStatus corev1.ConditionStatus
-	// TolerationDuration is the duration the controller will wait
-	// before force terminating nodes that are unhealthy.
+	// TolerationDuration은 컨트롤러가 비정상 노드를 강제 종료하기 전에 대기하는 시간입니다.
 	TolerationDuration time.Duration
 }
 
-// CloudProvider interface is implemented by cloud providers to support provisioning.
+// CloudProvider 인터페이스는 프로비저닝을 지원하기 위해 클라우드 프로바이더에 의해 구현됩니다.
+// 이 인터페이스는 노드 생성, 삭제, 조회 등의 기능을 제공합니다.
 type CloudProvider interface {
-	// Create launches a NodeClaim with the given resource requests and requirements and returns a hydrated
-	// NodeClaim back with resolved NodeClaim labels for the launched NodeClaim
+	// Create는 주어진 리소스 요청과 요구사항으로 NodeClaim을 시작하고 
+	// 시작된 NodeClaim에 대한 해결된 NodeClaim 레이블이 포함된 hydrated NodeClaim을 반환합니다.
 	Create(context.Context, *v1.NodeClaim) (*v1.NodeClaim, error)
-	// Delete removes a NodeClaim from the cloudprovider by its provider id. Delete should return
-	// NodeClaimNotFoundError if the cloudProvider instance is already terminated and nil if deletion was triggered.
-	// Karpenter will keep retrying until Delete returns a NodeClaimNotFound error.
+	
+	// Delete는 프로바이더 ID로 클라우드 프로바이더에서 NodeClaim을 제거합니다.
+	// 클라우드 프로바이더 인스턴스가 이미 종료된 경우 NodeClaimNotFoundError를 반환하고,
+	// 삭제가 트리거된 경우 nil을 반환해야 합니다.
+	// Karpenter는 Delete가 NodeClaimNotFound 오류를 반환할 때까지 계속 재시도합니다.
 	Delete(context.Context, *v1.NodeClaim) error
-	// Get retrieves a NodeClaim from the cloudprovider by its provider id
+	
+	// Get은 프로바이더 ID로 클라우드 프로바이더에서 NodeClaim을 검색합니다.
 	Get(context.Context, string) (*v1.NodeClaim, error)
-	// List retrieves all NodeClaims from the cloudprovider
+	
+	// List는 클라우드 프로바이더에서 모든 NodeClaim을 검색합니다.
 	List(context.Context) ([]*v1.NodeClaim, error)
-	// GetInstanceTypes returns instance types supported by the cloudprovider.
-	// Availability of types or zone may vary by nodepool or over time.  Regardless of
-	// availability, the GetInstanceTypes method should always return all instance types,
-	// even those with no offerings available.
+	
+	// GetInstanceTypes는 클라우드 프로바이더가 지원하는 인스턴스 유형을 반환합니다.
+	// 유형이나 영역의 가용성은 노드풀이나 시간에 따라 달라질 수 있습니다.
+	// 가용성에 관계없이 GetInstanceTypes 메서드는 항상 사용 가능한 오퍼링이 없는 
+	// 인스턴스 유형을 포함한 모든 인스턴스 유형을 반환해야 합니다.
 	GetInstanceTypes(context.Context, *v1.NodePool) ([]*InstanceType, error)
-	// IsDrifted returns whether a NodeClaim has drifted from the provisioning requirements
-	// it is tied to.
+	
+	// IsDrifted는 NodeClaim이 연결된 프로비저닝 요구사항에서 드리프트되었는지 여부를 반환합니다.
 	IsDrifted(context.Context, *v1.NodeClaim) (DriftReason, error)
-	// RepairPolicy is for CloudProviders to define a set Unhealthy condition for Karpenter
-	// to monitor on the node.
+	
+	// RepairPolicies는 클라우드 프로바이더가 Karpenter가 노드에서 모니터링할 
+	// 비정상 조건 집합을 정의하기 위한 것입니다.
 	RepairPolicies() []RepairPolicy
-	// Name returns the CloudProvider implementation name.
+	
+	// Name은 CloudProvider 구현 이름을 반환합니다.
 	Name() string
-	// GetSupportedNodeClasses returns CloudProvider NodeClass that implements status.Object
-	// NOTE: It returns a list where the first element should be the default NodeClass
+	
+	// GetSupportedNodeClasses는 status.Object를 구현하는 CloudProvider NodeClass를 반환합니다.
+	// 참고: 첫 번째 요소가 기본 NodeClass여야 하는 목록을 반환합니다.
 	GetSupportedNodeClasses() []status.Object
 }
 

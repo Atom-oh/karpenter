@@ -14,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// scheduling 패키지는 Karpenter의 스케줄링 로직을 구현합니다.
+// 이 패키지는 노드 선택 요구사항, 리소스 요구사항 및 스케줄링 제약 조건을 처리합니다.
 package scheduling
 
 import (
@@ -29,13 +31,20 @@ import (
 	v1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 )
 
-// Requirement is an efficient represenatation of corev1.NodeSelectorRequirement
+// Requirement는 corev1.NodeSelectorRequirement의 효율적인 표현입니다.
+// 이 구조체는 노드 선택 요구사항을 효율적으로 표현하고 처리하기 위한 내부 구조를 제공합니다.
 type Requirement struct {
+	// Key는 요구사항의 키입니다.
 	Key         string
+	// complement는 요구사항이 보완적인지 여부를 나타냅니다.
 	complement  bool
+	// values는 요구사항의 값 집합입니다.
 	values      sets.Set[string]
+	// greaterThan은 값이 이 값보다 커야 함을 나타냅니다.
 	greaterThan *int
+	// lessThan은 값이 이 값보다 작아야 함을 나타냅니다.
 	lessThan    *int
+	// MinValues는 요구사항을 충족하기 위한 최소 값 수를 나타냅니다.
 	MinValues   *int
 }
 
