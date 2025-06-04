@@ -14,6 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// drift.go 파일은 드리프트(drift) 감지 및 처리 로직을 구현합니다.
+// 드리프트는 노드가 원래 프로비저닝된 사양에서 벗어난 상태를 의미합니다.
+// 이 파일은 드리프트된 노드를 감지하고 제거하는 기능을 제공합니다.
 package disruption
 
 import (
@@ -33,11 +36,16 @@ import (
 	"sigs.k8s.io/karpenter/pkg/events"
 )
 
-// Drift is a subreconciler that deletes drifted candidates.
+// Drift는 드리프트된 후보 노드를 삭제하는 서브리컨실러입니다.
+// 이 구조체는 노드가 원래 프로비저닝된 사양에서 벗어났을 때 해당 노드를 감지하고 제거합니다.
 type Drift struct {
+	// kubeClient는 Kubernetes API와 통신하기 위한 클라이언트입니다.
 	kubeClient  client.Client
+	// cluster는 클러스터 상태 정보를 제공합니다.
 	cluster     *state.Cluster
+	// provisioner는 노드 프로비저닝을 담당합니다.
 	provisioner *provisioning.Provisioner
+	// recorder는 이벤트를 기록하는 데 사용됩니다.
 	recorder    events.Recorder
 }
 

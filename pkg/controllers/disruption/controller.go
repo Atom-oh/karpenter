@@ -14,6 +14,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// disruption 패키지는 노드 중단 관리를 담당합니다.
+// 이 패키지는 노드 통합(consolidation), 드리프트(drift) 감지, 빈 노드 제거(emptiness) 등의 기능을 제공하여
+// 클러스터의 효율성과 비용을 최적화합니다.
+// 
+// 주요 중단 방법:
+// - Emptiness: 빈 노드를 감지하고 제거합니다.
+// - Drift: 프로비저닝 사양에서 드리프트된 노드를 감지하고 제거합니다.
+// - SingleNodeConsolidation: 단일 노드를 더 효율적인 노드로 통합합니다.
+// - MultiNodeConsolidation: 여러 노드를 하나의 더 효율적인 노드로 통합합니다.
 package disruption
 
 import (
@@ -53,25 +62,41 @@ import (
 	"sigs.k8s.io/karpenter/pkg/utils/pretty"
 )
 
+// Controller는 노드 중단을 관리하는 컨트롤러입니다.
+// 이 컨트롤러는 다양한 중단 방법(빈 노드 제거, 드리프트 감지, 노드 통합 등)을 
+// 주기적으로 실행하여 클러스터의 효율성을 최적화합니다.
 type Controller struct {
+	// queue는 중단 작업을 관리하는 오케스트레이션 큐입니다.
 	queue         *orchestration.Queue
+	// kubeClient는 Kubernetes API와 통신하기 위한 클라이언트입니다.
 	kubeClient    client.Client
+	// cluster는 클러스터 상태 정보를 제공합니다.
 	cluster       *state.Cluster
+	// provisioner는 노드 프로비저닝을 담당합니다.
 	provisioner   *provisioning.Provisioner
+	// recorder는 이벤트를 기록하는 데 사용됩니다.
 	recorder      events.Recorder
+	// clock은 시간 관련 작업에 사용됩니다.
 	clock         clock.Clock
+	// cloudProvider는 클라우드 프로바이더와의 상호 작용을 담당합니다.
 	cloudProvider cloudprovider.CloudProvider
+	// methods는 사용 가능한 중단 방법 목록입니다.
 	methods       []Method
+	// mu는 동시성 제어를 위한 뮤텍스입니다.
 	mu            sync.Mutex
+	// lastRun은 각 중단 방법의 마지막 실행 시간을 추적합니다.
 	lastRun       map[string]time.Time
 }
 
-// pollingPeriod that we inspect cluster to look for opportunities to disrupt
+// pollingPeriod는 클러스터를 검사하여 중단 기회를 찾는 주기입니다.
 const pollingPeriod = 10 * time.Second
 
+// NewController는 새로운 중단 컨트롤러를 생성합니다.
+// 이 함수는 다양한 중단 방법을 초기화하고 컨트롤러를 구성합니다.
 func NewController(clk clock.Clock, kubeClient client.Client, provisioner *provisioning.Provisioner,
 	cp cloudprovider.CloudProvider, recorder events.Recorder, cluster *state.Cluster, queue *orchestration.Queue,
 ) *Controller {
+	// 통합 기능을 위한 공통 컨텍스트를 생성합니다.
 	c := MakeConsolidation(clk, cluster, kubeClient, provisioner, cp, recorder, queue)
 
 	return &Controller{
@@ -84,18 +109,20 @@ func NewController(clk clock.Clock, kubeClient client.Client, provisioner *provi
 		cloudProvider: cp,
 		lastRun:       map[string]time.Time{},
 		methods: []Method{
-			// Delete any empty NodeClaims as there is zero cost in terms of disruption.
+			// 빈 NodeClaim을 삭제합니다. 중단 비용이 전혀 없습니다.
 			NewEmptiness(c),
-			// Terminate any NodeClaims that have drifted from provisioning specifications, allowing the pods to reschedule.
+			// 프로비저닝 사양에서 드리프트된 NodeClaim을 종료하여 파드가 다시 스케줄링되도록 합니다.
 			NewDrift(kubeClient, cluster, provisioner, recorder),
-			// Attempt to identify multiple NodeClaims that we can consolidate simultaneously to reduce pod churn
+			// 파드 변동을 줄이기 위해 동시에 통합할 수 있는 여러 NodeClaim을 식별합니다.
 			NewMultiNodeConsolidation(c),
-			// And finally fall back our single NodeClaim consolidation to further reduce cluster cost.
+			// 마지막으로 클러스터 비용을 더 줄이기 위해 단일 NodeClaim 통합으로 대체합니다.
 			NewSingleNodeConsolidation(c),
 		},
 	}
 }
 
+// Register는 컨트롤러를 매니저에 등록합니다.
+// 이 함수는 컨트롤러가 싱글톤 소스를 감시하도록 설정합니다.
 func (c *Controller) Register(_ context.Context, m manager.Manager) error {
 	return controllerruntime.NewControllerManagedBy(m).
 		Named("disruption").
@@ -103,28 +130,31 @@ func (c *Controller) Register(_ context.Context, m manager.Manager) error {
 		Complete(singleton.AsReconciler(c))
 }
 
+// Reconcile는 중단 컨트롤러의 조정 로직을 구현합니다.
+// 이 함수는 클러스터 상태를 검사하고 적절한 중단 방법을 실행합니다.
 func (c *Controller) Reconcile(ctx context.Context) (reconcile.Result, error) {
+	// 컨트롤러 이름을 컨텍스트에 주입합니다.
 	ctx = injection.WithControllerName(ctx, "disruption")
 
-	// this won't catch if the reconcile loop hangs forever, but it will catch other issues
+	// 이것은 조정 루프가 영원히 멈추는 경우를 잡지는 못하지만, 다른 문제는 잡을 수 있습니다.
 	c.logAbnormalRuns(ctx)
 	defer c.logAbnormalRuns(ctx)
 	c.recordRun("disruption-loop")
 
-	// Log if there are any budgets that are misconfigured that weren't caught by validation.
-	// Only validate the first reason, since CEL validation will catch invalid disruption reasons
+	// 검증에서 잡지 못한 잘못 구성된 예산이 있는지 로그를 남깁니다.
+	// CEL 검증이 잘못된 중단 이유를 잡기 때문에 첫 번째 이유만 검증합니다.
 	c.logInvalidBudgets(ctx)
 
-	// We need to ensure that our internal cluster state mechanism is synced before we proceed
-	// with making any scheduling decision off of our state nodes. Otherwise, we have the potential to make
-	// a scheduling decision based on a smaller subset of nodes in our cluster state than actually exist.
+	// 상태 노드에서 스케줄링 결정을 내리기 전에 내부 클러스터 상태 메커니즘이 동기화되었는지 확인해야 합니다.
+	// 그렇지 않으면 실제로 존재하는 것보다 클러스터 상태의 더 작은 노드 하위 집합을 기반으로 
+	// 스케줄링 결정을 내릴 가능성이 있습니다.
 	if !c.cluster.Synced(ctx) {
 		return reconcile.Result{RequeueAfter: time.Second}, nil
 	}
 
-	// Karpenter taints nodes with a karpenter.sh/disruption taint as part of the disruption process while it progresses in memory.
-	// If Karpenter restarts or fails with an error during a disruption action, some nodes can be left tainted.
-	// Idempotently remove this taint from candidates that are not in the orchestration queue before continuing.
+	// Karpenter는 중단 프로세스의 일부로 메모리에서 진행되는 동안 karpenter.sh/disruption 테인트로 노드를 테인트합니다.
+	// Karpenter가 중단 작업 중에 오류로 재시작하거나 실패하면 일부 노드가 테인트된 상태로 남을 수 있습니다.
+	// 계속하기 전에 오케스트레이션 큐에 없는 후보에서 이 테인트를 멱등적으로 제거합니다.
 	outdatedNodes := lo.Filter(c.cluster.Nodes(), func(s *state.StateNode, _ int) bool {
 		return !c.queue.HasAny(s.ProviderID()) && !s.Deleted()
 	})
@@ -141,7 +171,7 @@ func (c *Controller) Reconcile(ctx context.Context) (reconcile.Result, error) {
 		return reconcile.Result{}, serrors.Wrap(fmt.Errorf("removing condition from nodeclaims, %w", err), "condition", v1.ConditionTypeDisruptionReason)
 	}
 
-	// Attempt different disruption methods. We'll only let one method perform an action
+	// 다양한 중단 방법을 시도합니다. 하나의 방법만 작업을 수행하도록 합니다.
 	for _, m := range c.methods {
 		c.recordRun(fmt.Sprintf("%T", m))
 		success, err := c.disrupt(ctx, m)
@@ -156,7 +186,7 @@ func (c *Controller) Reconcile(ctx context.Context) (reconcile.Result, error) {
 		}
 	}
 
-	// All methods did nothing, so return nothing to do
+	// 모든 방법이 아무것도 하지 않았으므로 할 일이 없음을 반환합니다.
 	return reconcile.Result{RequeueAfter: pollingPeriod}, nil
 }
 

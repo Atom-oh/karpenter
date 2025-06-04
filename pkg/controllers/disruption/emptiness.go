@@ -14,6 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// emptiness.go 파일은 빈 노드(empty node) 감지 및 처리 로직을 구현합니다.
+// 빈 노드는 실행 중인 파드가 없는 노드를 의미하며, 이러한 노드는 리소스 낭비를 방지하기 위해 제거됩니다.
+// 이 파일은 빈 노드를 감지하고 제거하는 기능을 제공합니다.
 package disruption
 
 import (
@@ -28,9 +31,12 @@ import (
 	"sigs.k8s.io/karpenter/pkg/controllers/provisioning/scheduling"
 )
 
-// Emptiness is a subreconciler that deletes empty candidates.
+// Emptiness는 빈 후보 노드를 삭제하는 서브리컨실러입니다.
+// 이 구조체는 실행 중인 파드가 없는 노드를 감지하고 제거하여 클러스터 리소스를 최적화합니다.
 type Emptiness struct {
+	// consolidation은 기본 통합 기능을 상속받습니다.
 	consolidation
+	// Validator는 노드 제거 전에 검증을 수행합니다.
 	Validator
 }
 

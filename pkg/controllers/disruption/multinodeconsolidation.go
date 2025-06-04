@@ -14,6 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// multinodeconsolidation.go 파일은 다중 노드 통합(multi-node consolidation) 로직을 구현합니다.
+// 다중 노드 통합은 여러 개의 저활용 노드를 하나의 더 효율적인 노드로 통합하는 기능을 제공합니다.
+// 이 파일은 여러 노드를 동시에 평가하고 통합하는 알고리즘을 구현합니다.
 package disruption
 
 import (
@@ -36,8 +39,12 @@ import (
 const MultiNodeConsolidationTimeoutDuration = 1 * time.Minute
 const MultiNodeConsolidationType = "multi"
 
+// MultiNodeConsolidation은 다중 노드 통합을 담당하는 구조체입니다.
+// 이 구조체는 여러 노드를 동시에 평가하고 하나의 더 효율적인 노드로 통합하는 기능을 제공합니다.
 type MultiNodeConsolidation struct {
+	// consolidation은 기본 통합 기능을 상속받습니다.
 	consolidation
+	// Validator는 노드 제거 전에 검증을 수행합니다.
 	Validator
 }
 

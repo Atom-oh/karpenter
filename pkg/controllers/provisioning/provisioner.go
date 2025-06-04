@@ -14,6 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// provisioning 패키지는 Karpenter의 노드 프로비저닝 로직을 구현합니다.
+// 이 패키지는 스케줄링 불가능한 파드를 감지하고, 적절한 노드를 프로비저닝하여
+// 클러스터의 용량을 동적으로 조정합니다.
 package provisioning
 
 import (
@@ -57,55 +60,83 @@ import (
 	"sigs.k8s.io/karpenter/pkg/utils/pretty"
 )
 
-// LaunchOptions are the set of options that can be used to trigger certain
-// actions and configuration during scheduling
+// LaunchOptions는 스케줄링 중에 특정 작업과 구성을 트리거하는 데 사용할 수 있는 옵션 집합입니다.
+// 이 구조체는 노드 생성 시 추가 동작을 구성하는 데 사용됩니다.
 type LaunchOptions struct {
+	// RecordPodNomination은 파드 지명 이벤트를 노드에 기록할지 여부를 나타냅니다.
 	RecordPodNomination bool
+	// Reason은 노드 생성 이유를 나타냅니다.
 	Reason              string
 }
 
-// RecordPodNomination causes nominate pod events to be recorded against the node.
+// RecordPodNomination은 파드 지명 이벤트를 노드에 기록하도록 합니다.
+// 이 함수는 LaunchOptions의 RecordPodNomination 필드를 true로 설정합니다.
 func RecordPodNomination(o *LaunchOptions) {
 	o.RecordPodNomination = true
 }
 
+// WithReason은 노드 생성 이유를 설정하는 함수를 반환합니다.
+// 이 함수는 LaunchOptions의 Reason 필드를 설정하는 함수를 반환합니다.
 func WithReason(reason string) func(*LaunchOptions) {
 	return func(o *LaunchOptions) { o.Reason = reason }
 }
 
-// Provisioner waits for enqueued pods, batches them, creates capacity and binds the pods to the capacity.
+// Provisioner는 대기열에 있는 파드를 기다리고, 배치하고, 용량을 생성하고, 파드를 용량에 바인딩합니다.
+// 이 구조체는 Karpenter의 핵심 프로비저닝 로직을 구현합니다.
 type Provisioner struct {
+	// cloudProvider는 클라우드 프로바이더와의 상호 작용을 담당합니다.
 	cloudProvider  cloudprovider.CloudProvider
+	// kubeClient는 Kubernetes API와 통신하기 위한 클라이언트입니다.
 	kubeClient     client.Client
+	// batcher는 파드를 배치하는 데 사용됩니다.
 	batcher        *Batcher[types.UID]
+	// volumeTopology는 볼륨 토폴로지 제약 조건을 처리합니다.
 	volumeTopology *scheduler.VolumeTopology
+	// cluster는 클러스터 상태 정보를 제공합니다.
 	cluster        *state.Cluster
+	// recorder는 이벤트를 기록하는 데 사용됩니다.
 	recorder       events.Recorder
+	// cm은 변경 사항을 모니터링하는 데 사용됩니다.
 	cm             *pretty.ChangeMonitor
+	// clock은 시간 관련 작업에 사용됩니다.
 	clock          clock.Clock
 }
 
+// NewProvisioner는 새로운 프로비저너를 생성합니다.
+// 이 함수는 프로비저너를 초기화하고 필요한 의존성을 주입합니다.
 func NewProvisioner(kubeClient client.Client, recorder events.Recorder,
 	cloudProvider cloudprovider.CloudProvider, cluster *state.Cluster,
 	clock clock.Clock,
 ) *Provisioner {
 	p := &Provisioner{
+		// 배처를 초기화합니다.
 		batcher:        NewBatcher[types.UID](clock),
+		// 클라우드 프로바이더를 설정합니다.
 		cloudProvider:  cloudProvider,
+		// Kubernetes 클라이언트를 설정합니다.
 		kubeClient:     kubeClient,
+		// 볼륨 토폴로지를 초기화합니다.
 		volumeTopology: scheduler.NewVolumeTopology(kubeClient),
+		// 클러스터 상태를 설정합니다.
 		cluster:        cluster,
+		// 이벤트 레코더를 설정합니다.
 		recorder:       recorder,
+		// 변경 모니터를 초기화합니다.
 		cm:             pretty.NewChangeMonitor(),
+		// 시계를 설정합니다.
 		clock:          clock,
 	}
 	return p
 }
 
+// Trigger는 지정된 UID로 배처를 트리거합니다.
+// 이 함수는 파드나 노드가 프로비저닝이 필요함을 알리는 데 사용됩니다.
 func (p *Provisioner) Trigger(uid types.UID) {
 	p.batcher.Trigger(uid)
 }
 
+// Register는 프로비저너를 매니저에 등록합니다.
+// 이 함수는 프로비저너가 싱글톤 소스를 감시하도록 설정합니다.
 func (p *Provisioner) Register(_ context.Context, m manager.Manager) error {
 	return controllerruntime.NewControllerManagedBy(m).
 		Named("provisioner").
@@ -113,21 +144,24 @@ func (p *Provisioner) Register(_ context.Context, m manager.Manager) error {
 		Complete(singleton.AsReconciler(p))
 }
 
+// Reconcile은 프로비저너의 조정 로직을 구현합니다.
+// 이 함수는 파드를 배치하고, 스케줄링하고, 필요한 노드를 생성합니다.
 func (p *Provisioner) Reconcile(ctx context.Context) (result reconcile.Result, err error) {
+	// 컨트롤러 이름을 컨텍스트에 주입합니다.
 	ctx = injection.WithControllerName(ctx, "provisioner")
 
-	// Batch pods
+	// 파드를 배치합니다.
 	if triggered := p.batcher.Wait(ctx); !triggered {
 		return reconcile.Result{RequeueAfter: singleton.RequeueImmediately}, nil
 	}
-	// We need to ensure that our internal cluster state mechanism is synced before we proceed
-	// with making any scheduling decision off of our state nodes. Otherwise, we have the potential to make
-	// a scheduling decision based on a smaller subset of nodes in our cluster state than actually exist.
+	// 내부 클러스터 상태 메커니즘이 동기화되었는지 확인해야 합니다.
+	// 그렇지 않으면 실제로 존재하는 것보다 클러스터 상태의 더 작은 노드 하위 집합을 기반으로 
+	// 스케줄링 결정을 내릴 가능성이 있습니다.
 	if !p.cluster.Synced(ctx) {
 		return reconcile.Result{RequeueAfter: singleton.RequeueImmediately}, nil
 	}
 
-	// Schedule pods to potential nodes, exit if nothing to do
+	// 파드를 잠재적 노드에 스케줄링하고, 할 일이 없으면 종료합니다.
 	results, err := p.Schedule(ctx)
 	if err != nil {
 		return reconcile.Result{}, err
@@ -135,6 +169,7 @@ func (p *Provisioner) Reconcile(ctx context.Context) (result reconcile.Result, e
 	if len(results.NewNodeClaims) == 0 {
 		return reconcile.Result{RequeueAfter: singleton.RequeueImmediately}, nil
 	}
+	// 노드 클레임을 생성하고 파드 지명을 기록합니다.
 	if _, err = p.CreateNodeClaims(ctx, results.NewNodeClaims, WithReason(metrics.ProvisionedReason), RecordPodNomination); err != nil {
 		return reconcile.Result{}, err
 	}

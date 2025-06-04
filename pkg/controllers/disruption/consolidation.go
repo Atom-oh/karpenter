@@ -14,6 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// consolidation.go 파일은 노드 통합(consolidation)의 기본 기능을 구현합니다.
+// 이 파일은 여러 노드를 더 효율적인 노드로 통합하는 로직을 제공합니다.
+// 통합은 비용 최적화를 위해 중요한 기능으로, 클러스터의 리소스 사용률을 높이고 비용을 절감합니다.
 package disruption
 
 import (
@@ -43,26 +46,37 @@ import (
 	"sigs.k8s.io/karpenter/pkg/scheduling"
 )
 
-// consolidationTTL is the TTL between creating a consolidation command and validating that it still works.
+// consolidationTTL은 통합 명령을 생성하고 해당 명령이 여전히 작동하는지 검증하는 사이의 TTL입니다.
+// 이 시간 동안 클러스터 상태가 변경되지 않으면 통합 명령이 유효하다고 간주됩니다.
 const consolidationTTL = 15 * time.Second
 
-// MinInstanceTypesForSpotToSpotConsolidation is the minimum number of instanceTypes in a NodeClaim needed to trigger spot-to-spot single-node consolidation
+// MinInstanceTypesForSpotToSpotConsolidation은 스팟-투-스팟 단일 노드 통합을 트리거하는 데 필요한 NodeClaim의 최소 인스턴스 유형 수입니다.
+// 이 값은 스팟 인스턴스 간의 반복적인 통합을 방지하기 위해 사용됩니다.
 const MinInstanceTypesForSpotToSpotConsolidation = 15
 
-// consolidation is the base consolidation controller that provides common functionality used across the different
-// consolidation methods.
+// consolidation은 다양한 통합 방법에서 사용되는 공통 기능을 제공하는 기본 통합 컨트롤러입니다.
+// 이 구조체는 SingleNodeConsolidation과 MultiNodeConsolidation에서 상속되어 사용됩니다.
 type consolidation struct {
-	// Consolidation needs to be aware of the queue for validation
+	// queue는 검증을 위해 통합이 알고 있어야 하는 오케스트레이션 큐입니다.
 	queue                  *orchestration.Queue
+	// clock은 시간 관련 작업에 사용됩니다.
 	clock                  clock.Clock
+	// cluster는 클러스터 상태 정보를 제공합니다.
 	cluster                *state.Cluster
+	// kubeClient는 Kubernetes API와 통신하기 위한 클라이언트입니다.
 	kubeClient             client.Client
+	// provisioner는 노드 프로비저닝을 담당합니다.
 	provisioner            *provisioning.Provisioner
+	// cloudProvider는 클라우드 프로바이더와의 상호 작용을 담당합니다.
 	cloudProvider          cloudprovider.CloudProvider
+	// recorder는 이벤트를 기록하는 데 사용됩니다.
 	recorder               events.Recorder
+	// lastConsolidationState는 마지막 통합 상태의 시간을 추적합니다.
 	lastConsolidationState time.Time
 }
 
+// MakeConsolidation은 새로운 통합 구조체를 생성합니다.
+// 이 함수는 통합에 필요한 모든 의존성을 주입하고 초기화된 통합 구조체를 반환합니다.
 func MakeConsolidation(clock clock.Clock, cluster *state.Cluster, kubeClient client.Client, provisioner *provisioning.Provisioner,
 	cloudProvider cloudprovider.CloudProvider, recorder events.Recorder, queue *orchestration.Queue) consolidation {
 	return consolidation{
@@ -76,17 +90,21 @@ func MakeConsolidation(clock clock.Clock, cluster *state.Cluster, kubeClient cli
 	}
 }
 
-// IsConsolidated returns true if nothing has changed since markConsolidated was called.
+// IsConsolidated는 markConsolidated가 호출된 이후 변경된 것이 없으면 true를 반환합니다.
+// 이 함수는 클러스터 상태가 마지막 통합 이후 변경되었는지 확인하는 데 사용됩니다.
 func (c *consolidation) IsConsolidated() bool {
 	return c.lastConsolidationState.Equal(c.cluster.ConsolidationState())
 }
 
-// markConsolidated records the current state of the cluster.
+// markConsolidated는 클러스터의 현재 상태를 기록합니다.
+// 이 함수는 통합 작업이 완료된 후 클러스터 상태를 저장하는 데 사용됩니다.
 func (c *consolidation) markConsolidated() {
 	c.lastConsolidationState = c.cluster.ConsolidationState()
 }
 
-// ShouldDisrupt is a predicate used to filter candidates
+// ShouldDisrupt는 후보를 필터링하는 데 사용되는 조건자입니다.
+// 이 함수는 주어진 후보 노드가 통합 대상이 될 수 있는지 평가합니다.
+// 인스턴스 유형, 용량 유형, 영역 등의 조건을 확인하여 통합 가능 여부를 결정합니다.
 func (c *consolidation) ShouldDisrupt(_ context.Context, cn *Candidate) bool {
 	// We need the following to know what the price of the instance for price comparison. If one of these doesn't exist, we can't
 	// compute consolidation decisions for this candidate.
@@ -120,7 +138,8 @@ func (c *consolidation) ShouldDisrupt(_ context.Context, cn *Candidate) bool {
 	return cn.NodeClaim.StatusConditions().Get(v1.ConditionTypeConsolidatable).IsTrue()
 }
 
-// sortCandidates sorts candidates by disruption cost (where the lowest disruption cost is first) and returns the result
+// sortCandidates는 중단 비용(가장 낮은 중단 비용이 먼저)으로 후보를 정렬하고 결과를 반환합니다.
+// 이 함수는 중단 비용이 가장 낮은 노드부터 평가하여 클러스터 중단을 최소화하는 데 사용됩니다.
 func (c *consolidation) sortCandidates(candidates []*Candidate) []*Candidate {
 	sort.Slice(candidates, func(i int, j int) bool {
 		return candidates[i].DisruptionCost < candidates[j].DisruptionCost
@@ -128,7 +147,9 @@ func (c *consolidation) sortCandidates(candidates []*Candidate) []*Candidate {
 	return candidates
 }
 
-// computeConsolidation computes a consolidation action to take
+// computeConsolidation은 수행할 통합 작업을 계산합니다.
+// 이 함수는 주어진 후보 노드들을 평가하고 적절한 통합 명령을 생성합니다.
+// 통합 명령은 노드 삭제 또는 노드 대체를 포함할 수 있습니다.
 //
 // nolint:gocyclo
 func (c *consolidation) computeConsolidation(ctx context.Context, candidates ...*Candidate) (Command, pscheduling.Results, error) {
@@ -190,10 +211,10 @@ func (c *consolidation) computeConsolidation(ctx context.Context, candidates ...
 		return c.computeSpotToSpotConsolidation(ctx, candidates, results, candidatePrice)
 	}
 
-	// filterByPrice returns the instanceTypes that are lower priced than the current candidate and any error that indicates the input couldn't be filtered.
-	// If we use this directly for spot-to-spot consolidation, we are bound to get repeated consolidations because the strategy that chooses to launch the spot instance from the list does
-	// it based on availability and price which could result in selection/launch of non-lowest priced instance in the list. So, we would keep repeating this loop till we get to lowest priced instance
-	// causing churns and landing onto lower available spot instance ultimately resulting in higher interruptions.
+	// filterByPrice는 현재 후보보다 가격이 낮은 인스턴스 유형과 입력을 필터링할 수 없음을 나타내는 오류를 반환합니다.
+	// 이것을 스팟-투-스팟 통합에 직접 사용하면 목록에서 스팟 인스턴스를 시작하기로 선택하는 전략이 반복적인 통합을 초래할 수 있습니다.
+	// 이는 가용성과 가격을 기반으로 하므로 목록에서 가장 낮은 가격의 인스턴스가 아닌 인스턴스를 선택/시작할 수 있습니다.
+	// 따라서 가장 낮은 가격의 인스턴스에 도달할 때까지 이 루프를 계속 반복하게 되어 변동을 일으키고 가용성이 낮은 스팟 인스턴스로 이어져 결국 더 높은 중단을 초래합니다.
 	results.NewNodeClaims[0], err = results.NewNodeClaims[0].RemoveInstanceTypeOptionsByPriceAndMinValues(results.NewNodeClaims[0].Requirements, candidatePrice)
 
 	if err != nil {
@@ -230,6 +251,12 @@ func (c *consolidation) computeConsolidation(ctx context.Context, candidates ...
 //  2. For single-node consolidation:
 //     a. There are at least 15 cheapest instance type replacement options to consolidate.
 //     b. The current candidate is NOT part of the first 15 cheapest instance types inorder to avoid repeated consolidation.
+//
+// computeSpotToSpotConsolidation은 다음 조건이 충족될 때 스팟-투-스팟 통합을 실행하는 명령을 계산합니다:
+//  1. SpotToSpotConsolidation 기능 플래그가 true로 설정되어 있음.
+//  2. 단일 노드 통합의 경우:
+//     a. 통합할 수 있는 가장 저렴한 인스턴스 유형 대체 옵션이 최소 15개 있음.
+//     b. 반복적인 통합을 방지하기 위해 현재 후보는 가장 저렴한 15개 인스턴스 유형에 포함되지 않음.
 func (c *consolidation) computeSpotToSpotConsolidation(ctx context.Context, candidates []*Candidate, results pscheduling.Results,
 	candidatePrice float64) (Command, pscheduling.Results, error) {
 
@@ -305,7 +332,8 @@ func (c *consolidation) computeSpotToSpotConsolidation(ctx context.Context, cand
 	}, results, nil
 }
 
-// getCandidatePrices returns the sum of the prices of the given candidates
+// getCandidatePrices는 주어진 후보들의 가격 합계를 반환합니다.
+// 이 함수는 통합 결정을 내리기 위해 현재 노드의 비용을 계산하는 데 사용됩니다.
 func getCandidatePrices(candidates []*Candidate) (float64, error) {
 	var price float64
 	for _, c := range candidates {

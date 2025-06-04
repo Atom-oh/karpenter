@@ -14,6 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// singlenodeconsolidation.go 파일은 단일 노드 통합(single-node consolidation) 로직을 구현합니다.
+// 단일 노드 통합은 하나의 저활용 노드를 더 효율적인 노드로 대체하는 기능을 제공합니다.
+// 이 파일은 개별 노드를 평가하고 더 비용 효율적인 대안으로 대체하는 알고리즘을 구현합니다.
 package disruption
 
 import (
@@ -35,10 +38,14 @@ var SingleNodeConsolidationTimeoutDuration = 3 * time.Minute
 
 const SingleNodeConsolidationType = "single"
 
-// SingleNodeConsolidation is the consolidation controller that performs single-node consolidation.
+// SingleNodeConsolidation은 단일 노드 통합을 수행하는 통합 컨트롤러입니다.
+// 이 구조체는 개별 노드를 평가하고 더 비용 효율적인 대안으로 대체하는 기능을 제공합니다.
 type SingleNodeConsolidation struct {
+	// consolidation은 기본 통합 기능을 상속받습니다.
 	consolidation
+	// PreviouslyUnseenNodePools는 이전에 보지 못한 노드풀을 추적합니다.
 	PreviouslyUnseenNodePools sets.Set[string]
+	// Validator는 노드 제거 전에 검증을 수행합니다.
 	Validator
 }
 
