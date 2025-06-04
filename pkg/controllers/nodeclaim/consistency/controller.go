@@ -14,6 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// consistency 패키지는 NodeClaim과 실제 노드 간의 일관성을 유지하는 컨트롤러를 구현합니다.
+// 이 패키지는 NodeClaim과 해당 노드 간의 불일치를 감지하고 보고하는 기능을 제공합니다.
+// 주요 기능으로는 노드 형태(shape) 검사, 레이블 일관성 확인 등이 있습니다.
 package consistency
 
 import (
@@ -43,12 +46,20 @@ import (
 	nodeclaimutils "sigs.k8s.io/karpenter/pkg/utils/nodeclaim"
 )
 
+// Controller는 NodeClaim과 노드 간의 일관성을 확인하는 컨트롤러입니다.
+// 이 컨트롤러는 정기적으로 NodeClaim과 해당 노드를 검사하여 불일치를 감지하고 보고합니다.
 type Controller struct {
+	// clock은 시간 관련 작업에 사용됩니다.
 	clock         clock.Clock
+	// kubeClient는 Kubernetes API와 통신하기 위한 클라이언트입니다.
 	kubeClient    client.Client
+	// cloudProvider는 클라우드 프로바이더와의 상호 작용을 담당합니다.
 	cloudProvider cloudprovider.CloudProvider
+	// checks는 수행할 일관성 검사 목록입니다.
 	checks        []Check
+	// recorder는 이벤트를 기록하는 데 사용됩니다.
 	recorder      events.Recorder
+	// lastScanned는 마지막 검사 시간을 추적하는 캐시입니다.
 	lastScanned   *cache.Cache
 }
 

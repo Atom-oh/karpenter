@@ -14,6 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// lifecycle 패키지는 NodeClaim의 생명주기를 관리하는 컨트롤러를 구현합니다.
+// 이 패키지는 NodeClaim의 시작부터 종료까지의 전체 생명주기를 관리하며,
+// 노드 시작, 등록, 초기화, 활성 상태 유지 등의 기능을 제공합니다.
+// 또한 일정 시간 동안 노드와 매칭되지 않는 NodeClaim을 제거하는 기능도 포함합니다.
 package lifecycle
 
 import (
@@ -52,18 +56,25 @@ import (
 	terminationutil "sigs.k8s.io/karpenter/pkg/utils/termination"
 )
 
-// Controller is a NodeClaim Lifecycle controller that manages the lifecycle of the NodeClaim up until its termination
-// The controller is responsible for ensuring that new Nodes get launched, that they have properly registered with
-// the cluster as nodes and that they are properly initialized, ensuring that nodeclaims that do not have matching nodes
-// after some liveness TTL are removed
+// Controller는 NodeClaim의 생명주기를 종료까지 관리하는 컨트롤러입니다.
+// 이 컨트롤러는 새 노드가 시작되고, 클러스터에 노드로 올바르게 등록되며,
+// 적절히 초기화되도록 보장하고, 일정 시간(liveness TTL) 후에도 매칭되는 노드가 없는
+// NodeClaim을 제거하는 역할을 담당합니다.
 type Controller struct {
+	// kubeClient는 Kubernetes API와 통신하기 위한 클라이언트입니다.
 	kubeClient    client.Client
+	// cloudProvider는 클라우드 프로바이더와의 상호 작용을 담당합니다.
 	cloudProvider cloudprovider.CloudProvider
+	// recorder는 이벤트를 기록하는 데 사용됩니다.
 	recorder      events.Recorder
 
+	// launch는 NodeClaim의 시작 단계를 관리합니다.
 	launch         *Launch
+	// registration은 NodeClaim의 등록 단계를 관리합니다.
 	registration   *Registration
+	// initialization은 NodeClaim의 초기화 단계를 관리합니다.
 	initialization *Initialization
+	// liveness는 NodeClaim의 활성 상태를 관리합니다.
 	liveness       *Liveness
 }
 

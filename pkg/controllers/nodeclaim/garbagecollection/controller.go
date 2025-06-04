@@ -14,6 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// garbagecollection 패키지는 불필요한 NodeClaim을 정리하는 컨트롤러를 구현합니다.
+// 이 패키지는 클라우드 프로바이더에 더 이상 존재하지 않는 NodeClaim을 감지하고 삭제하는 기능을 제공합니다.
+// 이를 통해 클러스터 상태와 클라우드 프로바이더 상태 간의 일관성을 유지합니다.
 package garbagecollection
 
 import (
@@ -42,9 +45,14 @@ import (
 	nodeclaimutils "sigs.k8s.io/karpenter/pkg/utils/nodeclaim"
 )
 
+// Controller는 불필요한 NodeClaim을 정리하는 컨트롤러입니다.
+// 이 컨트롤러는 클라우드 프로바이더에 더 이상 존재하지 않는 NodeClaim을 감지하고 삭제합니다.
 type Controller struct {
+	// clock은 시간 관련 작업에 사용됩니다.
 	clock         clock.Clock
+	// kubeClient는 Kubernetes API와 통신하기 위한 클라이언트입니다.
 	kubeClient    client.Client
+	// cloudProvider는 클라우드 프로바이더와의 상호 작용을 담당합니다.
 	cloudProvider cloudprovider.CloudProvider
 }
 

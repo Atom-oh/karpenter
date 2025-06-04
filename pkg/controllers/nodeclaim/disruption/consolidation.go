@@ -14,6 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// consolidation.go 파일은 NodeClaim의 통합 가능성을 평가하는 로직을 구현합니다.
+// 이 파일은 NodePool의 consolidateAfter 설정에 따라 NodeClaim에 통합 가능 상태 조건을
+// 추가하거나 제거하는 기능을 제공합니다. 이를 통해 중단 컨트롤러가 통합 대상 노드를
+// 식별할 수 있습니다.
 package disruption
 
 import (
@@ -28,9 +32,12 @@ import (
 	v1 "sigs.k8s.io/karpenter/pkg/apis/v1"
 )
 
-// Consolidation is a nodeclaim sub-controller that adds or removes status conditions on empty nodeclaims based on consolidateAfter
+// Consolidation은 consolidateAfter 설정에 따라 빈 NodeClaim에 상태 조건을 추가하거나 제거하는 서브 컨트롤러입니다.
+// 이 컨트롤러는 NodeClaim이 통합 가능한지 여부를 결정하고, 적절한 상태 조건을 설정합니다.
 type Consolidation struct {
+	// kubeClient는 Kubernetes API와 통신하기 위한 클라이언트입니다.
 	kubeClient client.Client
+	// clock은 시간 관련 작업에 사용됩니다.
 	clock      clock.Clock
 }
 

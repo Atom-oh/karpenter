@@ -14,6 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// podevents 패키지는 NodeClaim에 파드 이벤트 정보를 추가하는 컨트롤러를 구현합니다.
+// 이 패키지는 파드의 스케줄링, 종료 등의 이벤트를 감지하고 관련 NodeClaim의
+// lastPodEvent 상태를 업데이트하는 기능을 제공합니다.
+// 이를 통해 통합(consolidation) 결정을 무효화하는 등의 작업을 수행할 수 있습니다.
 package podevents
 
 import (
@@ -43,10 +47,15 @@ import (
 // 15 second validation period, so that we can ensure that we invalidate consolidation commands that are decided while we're de-duping pod events.
 const dedupeTimeout = 10 * time.Second
 
-// Podevents is a nodeclaim controller that deletes adds the lastPodEvent status onto the nodeclaim
+// Controller는 NodeClaim에 lastPodEvent 상태를 추가하는 컨트롤러입니다.
+// 이 컨트롤러는 파드의 스케줄링, 종료 등의 이벤트를 감지하고 관련 NodeClaim의
+// 상태를 업데이트하여 통합 결정을 무효화하는 등의 작업을 지원합니다.
 type Controller struct {
+	// clock은 시간 관련 작업에 사용됩니다.
 	clock         clock.Clock
+	// kubeClient는 Kubernetes API와 통신하기 위한 클라이언트입니다.
 	kubeClient    client.Client
+	// cloudProvider는 클라우드 프로바이더와의 상호 작용을 담당합니다.
 	cloudProvider cloudprovider.CloudProvider
 }
 

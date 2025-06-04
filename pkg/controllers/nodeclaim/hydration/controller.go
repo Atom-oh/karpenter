@@ -14,6 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// hydration 패키지는 NodeClaim에 필요한 정보를 채우는 컨트롤러를 구현합니다.
+// 이 패키지는 Karpenter의 새 버전에서 필요하지만 기존 NodeClaim에 존재하지 않을 수 있는
+// 정보를 추가하는 기능을 제공합니다. 주로 레이블과 같은 메타데이터를 업데이트합니다.
 package hydration
 
 import (
@@ -38,10 +41,13 @@ import (
 	nodeclaimutils "sigs.k8s.io/karpenter/pkg/utils/nodeclaim"
 )
 
-// Controller hydrates information to the NodeClaim which is expected in newer versions of Karpenter, but would not
-// exist on pre-existing NodeClaims.
+// Controller는 Karpenter의 새 버전에서 필요하지만 기존 NodeClaim에 존재하지 않을 수 있는
+// 정보를 NodeClaim에 채우는 컨트롤러입니다.
+// 이 컨트롤러는 주로 NodeClass 레이블과 같은 메타데이터를 업데이트합니다.
 type Controller struct {
+	// kubeClient는 Kubernetes API와 통신하기 위한 클라이언트입니다.
 	kubeClient    client.Client
+	// cloudProvider는 클라우드 프로바이더와의 상호 작용을 담당합니다.
 	cloudProvider cloudprovider.CloudProvider
 }
 

@@ -14,6 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// disruption 패키지는 NodeClaim의 중단 관련 로직을 처리하는 컨트롤러를 구현합니다.
+// 이 패키지는 NodeClaim이 특정 중단 조건(빈 노드, 드리프트된 노드 등)을 충족할 때
+// 상태 조건(StatusConditions)을 추가하는 기능을 제공합니다.
+// 주요 기능으로는 드리프트 감지, 통합 가능성 평가 등이 있습니다.
 package disruption
 
 import (
@@ -47,13 +51,18 @@ type nodeClaimReconciler interface {
 	Reconcile(context.Context, *v1.NodePool, *v1.NodeClaim) (reconcile.Result, error)
 }
 
-// Controller is a disruption controller that adds StatusConditions to nodeclaims when they meet certain disruption conditions
-// e.g. When the NodeClaim has become empty, then it is marked as "Empty" in the StatusConditions
+// Controller는 NodeClaim이 특정 중단 조건을 충족할 때 StatusConditions를 추가하는 중단 컨트롤러입니다.
+// 예를 들어, NodeClaim이 비어 있을 때 StatusConditions에 "Empty"로 표시됩니다.
+// 이 컨트롤러는 드리프트와 통합 두 가지 주요 중단 메커니즘을 관리합니다.
 type Controller struct {
+	// kubeClient는 Kubernetes API와 통신하기 위한 클라이언트입니다.
 	kubeClient    client.Client
+	// cloudProvider는 클라우드 프로바이더와의 상호 작용을 담당합니다.
 	cloudProvider cloudprovider.CloudProvider
 
+	// drift는 NodeClaim의 드리프트 상태를 관리합니다.
 	drift         *Drift
+	// consolidation은 NodeClaim의 통합 가능성을 평가합니다.
 	consolidation *Consolidation
 }
 

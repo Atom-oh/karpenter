@@ -14,6 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// nodeshape.go 파일은 노드 형태(shape) 검사를 구현합니다.
+// 이 파일은 노드가 예상보다 10% 이상 적은 리소스로 시작되었는지 감지하는 기능을 제공합니다.
+// 이를 통해 노드 리소스 용량과 NodeClaim에 명시된 예상 용량 간의 불일치를 식별할 수 있습니다.
 package consistency
 
 import (

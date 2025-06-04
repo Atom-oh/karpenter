@@ -14,6 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// expiration 패키지는 NodeClaim의 만료를 관리하는 컨트롤러를 구현합니다.
+// 이 패키지는 expireAfter 설정에 따라 만료된 NodeClaim을 삭제하는 기능을 제공합니다.
+// NodeClaim이 생성된 후 지정된 시간이 지나면 자동으로 삭제되어 클러스터 리소스를 최적화합니다.
 package expiration
 
 import (
@@ -38,10 +41,14 @@ import (
 	nodeclaimutils "sigs.k8s.io/karpenter/pkg/utils/nodeclaim"
 )
 
-// Expiration is a nodeclaim controller that deletes expired nodeclaims based on expireAfter
+// Controller는 expireAfter 설정에 따라 만료된 NodeClaim을 삭제하는 컨트롤러입니다.
+// 이 컨트롤러는 NodeClaim의 생성 시간과 expireAfter 설정을 비교하여 만료 여부를 결정합니다.
 type Controller struct {
+	// clock은 시간 관련 작업에 사용됩니다.
 	clock         clock.Clock
+	// kubeClient는 Kubernetes API와 통신하기 위한 클라이언트입니다.
 	kubeClient    client.Client
+	// cloudProvider는 클라우드 프로바이더와의 상호 작용을 담당합니다.
 	cloudProvider cloudprovider.CloudProvider
 }
 
